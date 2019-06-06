@@ -203,6 +203,15 @@ public class NXQL {
      */
     public static final String ECM_ISTRASHED = "ecm:isTrashed";
 
+    /** @since 11.1 */
+    public static final String ECM_ISRECORD = "ecm:isRecord";
+
+    /** @since 11.1 */
+    public static final String ECM_RETAINUNTIL = "ecm:retainUntil";
+
+    /** @since 11.1 */
+    public static final String ECM_HASLEGALHOLD = "ecm:hasLegalHold";
+
     /**
      * Escapes a string into a single-quoted string for NXQL.
      * <p>
