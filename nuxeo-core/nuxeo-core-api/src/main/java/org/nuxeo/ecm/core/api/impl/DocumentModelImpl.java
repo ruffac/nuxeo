@@ -193,6 +193,12 @@ public class DocumentModelImpl implements DocumentModel, Cloneable {
 
     protected boolean isTrashed;
 
+    public boolean isRecord;
+
+    public Calendar retainUntil;
+
+    public boolean hasLegalHold;
+
     protected DocumentModelImpl() {
     }
 
@@ -698,6 +704,52 @@ public class DocumentModelImpl implements DocumentModel, Cloneable {
             refresh(REFRESH_STATE, null);
         }
         return checkinComment;
+    }
+
+    @Override
+    public boolean isRecord() {
+        if (!isStateLoaded) {
+            refresh(REFRESH_STATE, null);
+        }
+        return isRecord;
+    }
+
+    // for I/O
+    public void makeRecord() {
+        isRecord = true;
+    }
+
+    @Override
+    public Calendar getRetainUntil() {
+        if (!isStateLoaded) {
+            refresh(REFRESH_STATE, null);
+        }
+        return retainUntil;
+    }
+
+    // for I/O
+    public void setRetainUntil(Calendar retainUntil) {
+        this.retainUntil = retainUntil;
+    }
+
+    @Override
+    public boolean hasLegalHold() {
+        if (!isStateLoaded) {
+            refresh(REFRESH_STATE, null);
+        }
+        return hasLegalHold;
+    }
+
+    // for I/O
+    public void setLegalHold(boolean hold) {
+        hasLegalHold = hold;
+    }
+
+    @Override
+    public boolean isUnderRetentionOrLegalHold() {
+        Calendar retainUntil;
+        return hasLegalHold()
+                || (((retainUntil = getRetainUntil()) != null) && Calendar.getInstance().before(retainUntil));
     }
 
     @Override
@@ -1371,6 +1423,9 @@ public class DocumentModelImpl implements DocumentModel, Cloneable {
             versionSeriesId = refresh.versionSeriesId;
             checkinComment = refresh.checkinComment;
             isTrashed = refresh.isTrashed;
+            isRecord = refresh.isRecord;
+            retainUntil = refresh.retainUntil;
+            hasLegalHold = refresh.hasLegalHold;
             isStateLoaded = true;
         }
         acp = null;
