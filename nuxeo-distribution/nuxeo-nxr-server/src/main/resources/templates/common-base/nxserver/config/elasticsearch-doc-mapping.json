@@ -85,6 +85,9 @@
     "ecm:isVersion": {
       "type": "boolean"
     },
+    "ecm:retainUntil": {
+      "type": "date"
+    },
     "common:icon": {
       "index": false,
       "type": "keyword"

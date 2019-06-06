@@ -97,6 +97,10 @@ public class JsonESDocumentWriter {
         jg.writeBooleanField("ecm:isVersion", doc.isVersion());
         jg.writeBooleanField("ecm:isLatestVersion", doc.isLatestVersion());
         jg.writeBooleanField("ecm:isLatestMajorVersion", doc.isLatestMajorVersion());
+        jg.writeBooleanField("ecm:isRecord", doc.isRecord());
+        jg.writeBooleanField("ecm:retainUntil", doc.isRecord());
+        jg.writeBooleanField("ecm:hasLegalHold", doc.hasLegalHold());
+        jg.writeBooleanField("ecm:isUnderRetentionOrLegalHold", doc.isUnderRetentionOrLegalHold());
         jg.writeArrayFieldStart("ecm:mixinType");
         for (String facet : doc.getFacets()) {
             jg.writeString(facet);
