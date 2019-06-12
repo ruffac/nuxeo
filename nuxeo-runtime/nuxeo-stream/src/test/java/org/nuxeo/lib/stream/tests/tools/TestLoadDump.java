@@ -25,13 +25,18 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
 import org.apache.avro.Schema;
+import org.apache.avro.file.CodecFactory;
 import org.apache.avro.file.DataFileReader;
+import org.apache.avro.file.DataFileWriter;
 import org.apache.avro.io.DatumReader;
+import org.apache.avro.io.DatumWriter;
 import org.apache.avro.reflect.ReflectData;
 import org.apache.avro.reflect.ReflectDatumReader;
+import org.apache.avro.reflect.ReflectDatumWriter;
 import org.junit.Test;
 import org.nuxeo.lib.stream.StreamRuntimeException;
 import org.nuxeo.lib.stream.computation.Record;
@@ -46,6 +51,12 @@ public class TestLoadDump {
 
     private static final String DUMP_FILE = "data/dump.avro";
 
+    private static final String OUTPUT_FILE = "/tmp/out.avro";
+
+    protected DataFileWriter<Record> dataFileWriter;
+
+    protected boolean writeToOuput = false;
+
     public Path getDumpPath() {
         URL url = getClass().getClassLoader().getResource(DUMP_FILE);
         try {
@@ -56,11 +67,14 @@ public class TestLoadDump {
     }
 
     @Test
-    public void testReadDump() {
+    public void testReadDump() throws IOException {
         Path dumpPath = getDumpPath();
         Schema schema = ReflectData.get().getSchema(Record.class);
         DatumReader<Record> datumReader = new ReflectDatumReader<>(schema);
         int count = 0;
+        if (writeToOuput) {
+            openWriter(OUTPUT_FILE, schema);
+        }
         try (DataFileReader<Record> dataFileReader = new DataFileReader<>(dumpPath.toFile(), datumReader)) {
             while (dataFileReader.hasNext()) {
                 Record record = dataFileReader.next();
@@ -68,13 +82,38 @@ public class TestLoadDump {
             }
         } catch (IOException e) {
             throw new StreamRuntimeException(e);
+        } finally {
+            closeWriter();
         }
     }
 
-    protected void doSomething(int i, Record record) {
-        // System.out.println(record);
+    protected void openWriter(String outputFile, Schema schema) throws IOException {
+        DatumWriter<Record> datumWriter = new ReflectDatumWriter<>(schema);
+        dataFileWriter = new DataFileWriter<>(datumWriter);
+        dataFileWriter.setCodec(CodecFactory.snappyCodec());
+        dataFileWriter.create(schema, new File(outputFile));
+    }
+
+    protected void closeWriter() throws IOException {
+        if (dataFileWriter != null) {
+            dataFileWriter.close();
+            dataFileWriter = null;
+        }
+    }
+
+    protected void doSomething(int i, Record record) throws IOException {
+        // System.out.println("in: " + record);
         assertEquals("0", record.getKey());
         assertTrue(record.getData().length > 0);
+        if (!writeToOuput) {
+            return;
+        }
+        String message = new String(record.getData(), StandardCharsets.UTF_8);
+        message = message.replace("logEntry", "XXX");
+        Record changed = new Record(record.getKey(), message.getBytes(StandardCharsets.UTF_8), record.getWatermark(),
+                record.getFlags());
+        // System.out.println("out: " + changed);
+        dataFileWriter.append(changed);
     }
 
 }

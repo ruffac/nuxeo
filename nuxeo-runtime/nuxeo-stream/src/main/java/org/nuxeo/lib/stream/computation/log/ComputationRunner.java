@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -103,7 +104,7 @@ public class ComputationRunner implements Runnable, RebalanceListener {
 
     protected List<LogPartition> defaultAssignment;
 
-    //@since 11.1
+    // @since 11.1
     // Use the Nuxeo registry name without adding dependency on nuxeo-runtime
     public static final String NUXEO_METRICS_REGISTRY_NAME = "org.nuxeo.runtime.metrics.MetricsService";
 
@@ -123,6 +124,8 @@ public class ComputationRunner implements Runnable, RebalanceListener {
 
     protected Timer processTimerTimer;
 
+    // @since 11.1
+    protected static AtomicInteger skipFailures = new AtomicInteger(0);
 
     @SuppressWarnings("unchecked")
     public ComputationRunner(Supplier<Computation> supplier, ComputationMetadataMapping metadata,
@@ -365,6 +368,11 @@ public class ComputationRunner implements Runnable, RebalanceListener {
             log.error(String.format("Skip record after failure: %s", context.getLastOffset()));
             context.askForCheckpoint();
             recordSkippedCount.inc();
+        } else if (skipFailureForRecovery()) {
+            log.error(String.format("Skip record after failure instead of terminating because of recovery mode: %s",
+                    context.getLastOffset()));
+            context.askForCheckpoint();
+            recordSkippedCount.inc();
         } else {
             log.error(String.format("Terminate computation: %s due to previous failure", metadata.name()));
             context.cancelAskForCheckpoint();
@@ -372,6 +380,15 @@ public class ComputationRunner implements Runnable, RebalanceListener {
             globalFailureCount.inc();
             failureCount.inc();
         }
+    }
+
+    protected boolean skipFailureForRecovery() {
+        if (policy.getSkipFirstFailures() > 0) {
+            if (skipFailures.incrementAndGet() <= policy.getSkipFirstFailures()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     protected Duration getTimeoutDuration() {
