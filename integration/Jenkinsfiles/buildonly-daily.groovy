@@ -1,4 +1,3 @@
-
 properties([
     [$class: 'BuildDiscarderProperty', strategy: [$class: 'LogRotator', daysToKeepStr: '60', numToKeepStr: '60', artifactNumToKeepStr: '1']],
     disableConcurrentBuilds(),
@@ -9,73 +8,101 @@ properties([
 ])
 
 
-
 timestamps {
     
     timeout(time: 240, unit: 'MINUTES') {
         
         node ('SLAVE') {
-      
+            
+            tool name: 'ant-1.9'
+            tool name: 'maven-3'
+            jdk = tool name: 'java-11-openjdk'
+            env.JAVA_HOME = "${jdk}"
+            def sha
+        
             stage ('Checkout') {
-                checkout([$class: 'GitSCM', branches: [[name: 'master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: '', url: 'https://github.com/nuxeo/nuxeo/']]])
+                checkout([$class: 'GitSCM', branches: [[name: 'master']], doGenerateSubmoduleConfigurations: false, userRemoteConfigs: [[credentialsId: '', url: 'https://github.com/nuxeo/nuxeo/']]])
             }
             stage ('Build') {
             
-                withEnv(["MAVEN_OPTS=-Xmx2048m"]) {
+                withEnv(["MAVEN_OPTS=-Xms2g -Xmx4g"]) {
             
                     // Shell Clean Workspace step
                     sh """
                         export PATH="/opt/build/tools/maven3/bin:$PATH"
                         [ "$CLEAN_REPO" = "true" ] && rm -rf ${WORKSPACE}/.repository/org/nuxeo 2>/dev/null
                         ./clone.py master 
-                       """        
-                    // Maven build step
-                    withMaven(jdk: 'java-11-openjdk', maven: 'maven-3', mavenOpts: '-Xms2g -Xmx4g', mavenLocalRepo: "$WORKSPACE/.repository") {
-                        sh "mvn -f pom.xml -V clean install -DskipTests=true -DskipITs=true -Paddons,distrib "
-                    }       
-                    // Maven build step
-                    withMaven(jdk: 'java-11-openjdk', maven: 'maven-3', mavenOpts: '-Xmx2g') {
-                        sh "mvn -f pom.xml -V versions:display-dependency-updates -nsu -N "
-                    }       
-                    // Maven build step
-                    withMaven(jdk: 'java-11-openjdk', maven: 'maven-3', mavenOpts: '-Xms2g -Xmx3g', mavenLocalRepo: "$WORKSPACE/.repository") {
-                        sh "mvn -f pom.xml -V license:aggregate-add-third-party -Paddons,distrib,release -nsu "
-                    }       
-                    // Maven build step
-                    withMaven(jdk: 'java-11-openjdk', maven: 'maven-3', mavenOpts: '-Xms2g -Xmx4g') {
-                        sh """
-                           mvn -V  \
-                           dependency:tree \
-                           -Paddons,distrib,release \
-                           -DoutputFile="${WORKSPACE}/target/generated-sources/dependency-tree.log" \
-                           -DappendOutput=true \
-                           -nsu 
-                               """
-                    }       
-                    // Maven build step
-                    withMaven(jdk: 'java-11-openjdk', maven: 'maven-3', mavenOpts: '-Xms2g -Xmx4g') {
-                        sh """
-                           mvn -V \
-                           org.owasp:dependency-check-maven:aggregate \
-                           -Paddons,distrib,release \
-                           -nsu 
-                           """
-                    }
+                       """
+                       
+                    sha = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
                     
-                    // Shell check license step
-                
-                    def shellReturnStatus = sh returnStatus: true, script: """
-                        ./scripts/generate-licenses.py
-                        if [ -s target/generated-sources/license/THIRD-PARTY-BLACK.md ]; then
-                            echo "check black listed third parties for unknown or wrong licenses" >&2
-                            exit 1
-                        fi
-                            exit 0 
-                    """ 
-                    if (shellReturnStatus == 1) { 
-                       currentBuild.result = 'UNSTABLE' 
+                    withBuildStatus("mvn clean install", "https://github.com/nuxeo/nuxeo", sha, "${BUILD_URL}") {
+                        withMaven( mavenLocalRepo: "$WORKSPACE/.repository") {
+                            sh "mvn -B -f pom.xml -V clean install -DskipTests=true -DskipITs=true -Pdistrib "
+                        }
                     }
-                    archiveArtifacts allowEmptyArchive: false, artifacts: 'target/generated-sources/license/THIRD-PARTY*,target/generated-sources/dependency-tree.log,target/dependency-check-report.html,target/outdated-dependencies.txt', caseSensitive: true, defaultExcludes: true, fingerprint: false, onlyIfSuccessful: false
+                   parallel CheckDependencies: {
+                       
+                       try {
+                            withBuildStatus("mvn check dependencies", "https://github.com/nuxeo/nuxeo", sha, "${BUILD_URL}") {
+
+                               withMaven {
+                                sh "mvn -B -f pom.xml -V versions:display-dependency-updates -nsu -N "
+                               }
+                               withMaven {
+                                sh """
+                                   mvn -B -V  \
+                                   dependency:tree \
+                                   -Pdistrib,release \
+                                   -DoutputFile="${WORKSPACE}/target/generated-sources/dependency-tree.log" \
+                                   -DappendOutput=true \
+                                   -nsu 
+                                   """
+                               }
+                               withMaven {
+                                sh """
+                                   mvn -B -V \
+                                   org.owasp:dependency-check-maven:aggregate \
+                                   -Pdistrib \
+                                   -nsu 
+                                   """
+                                }
+                            }
+                       } finally {
+                           
+                            archiveArtifacts allowEmptyArchive: false, artifacts: 'target/generated-sources/license/THIRD-PARTY*,target/generated-sources/dependency-tree.log,target/dependency-check-report.html,target/outdated-dependencies.txt', caseSensitive: true, defaultExcludes: true, fingerprint: false, onlyIfSuccessful: false
+                       } 
+                       
+                   }, checkLicenses: {
+                       
+                       try {
+                           
+                            withBuildStatus("mvn check licenses", "https://github.com/nuxeo/nuxeo", sha, "${BUILD_URL}") {
+
+                               withMaven(mavenLocalRepo: "$WORKSPACE/.repository") {
+                                   sh "mvn -B -f pom.xml -V license:aggregate-add-third-party -Pdistrib,release -nsu " // Licenses
+                               }
+                               
+                               def shellReturnStatus = sh returnStatus: true, script: """
+                                ./scripts/generate-licenses.py
+                                if [ -s target/generated-sources/license/THIRD-PARTY-BLACK.md ]; then
+                                    echo "check black listed third parties for unknown or wrong licenses" >&2
+                                    exit 1
+                                fi
+                                    exit 0 
+                                """  // Licenses
+                               if (shellReturnStatus == 1) { 
+                                   currentBuild.result = 'UNSTABLE' 
+                               }
+                            }
+                       } finally {
+                           
+                            archiveArtifacts allowEmptyArchive: false, artifacts: 'target/generated-sources/license/THIRD-PARTY*,target/generated-sources/dependency-tree.log,target/dependency-check-report.html,target/outdated-dependencies.txt', caseSensitive: true, defaultExcludes: true, fingerprint: false, onlyIfSuccessful: false
+                       }
+                   }, 
+                   failFast: true
+                   archiveArtifacts allowEmptyArchive: false, artifacts: 'target/generated-sources/license/THIRD-PARTY*,target/generated-sources/dependency-tree.log,target/dependency-check-report.html,target/outdated-dependencies.txt', caseSensitive: true, defaultExcludes: true, fingerprint: false, onlyIfSuccessful: false
+                   warningsPublisher()
                 }
             }
         }
